@@ -153,10 +153,7 @@ export function MessageTester() {
   const batchSessionRef = useRef('');
 
   const { data: groups = [], isLoading: loadingGroups } = useSessionGroupsQuery(session, recipientType === 'group');
-  const { data: templates = [], isLoading: loadingTemplates } = useTemplatesQuery(
-    session,
-    messageType === 'bulk' && !!session
-  );
+  const { data: templates = [], isLoading: loadingTemplates } = useTemplatesQuery(session, !!session);
 
   const placeholders = useMemo(() => extractPlaceholders(content), [content]);
 
@@ -184,10 +181,10 @@ export function MessageTester() {
     }
   }, [sessions, session]);
 
-  // Clear the group selection when the session changes so a stale group id from the previous session
-  // can't be sent to; the effect below then re-seeds groups[0].id once the new session's groups load.
+  // Clear the group and template selection when the session changes
   useEffect(() => {
     setSelectedGroup('');
+    setSelectedTemplateId('');
   }, [session]);
 
   useEffect(() => {
@@ -922,7 +919,11 @@ export function MessageTester() {
                 )}
                 {!loadingTemplates && templates.length === 0 && (
                   <span className="hint">
-                    {t('messageTester.noTemplatesHint', 'No saved templates found for this session.')}
+                    {t(
+                      'messageTester.noTemplatesHint',
+                      'No saved templates found for active session ({{sessionName}}). Ensure the correct session is selected in the Session dropdown above.',
+                      { sessionName: sessions.find(s => s.id === session)?.name || session || 'selected session' }
+                    )}
                   </span>
                 )}
               </div>
