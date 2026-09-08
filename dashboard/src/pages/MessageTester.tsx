@@ -13,6 +13,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRole } from '../hooks/useRole';
 import { useSessionsQuery, useSessionGroupsQuery } from '../hooks/queries';
 import { parseBulkRecipients, BULK_MAX_RECIPIENTS } from '../utils/bulkRecipients';
+import { parseCsvLeads, type CsvRow } from '../utils/csvLeads';
 import { PageHeader } from '../components/PageHeader';
 import './MessageTester.css';
 
@@ -132,6 +133,12 @@ export function MessageTester() {
   const [forwardMessageId, setForwardMessageId] = useState('');
   const [bulkRecipients, setBulkRecipients] = useState('');
   const [bulkDelay, setBulkDelay] = useState('');
+  const [bulkMode, setBulkMode] = useState<'paste' | 'csv'>('paste');
+  const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvFileName, setCsvFileName] = useState('');
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState<ApiResponse | null>(null);
   // Live bulk-batch progress, polled every ~2s while the batch runs (see startBatchPolling).
@@ -236,6 +243,44 @@ export function MessageTester() {
     reader.readAsDataURL(file);
   };
 
+  const handleCsvChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking
+    if (!file) return;
+
+    setCsvFileName(file.name);
+    setCsvError(null);
+    setCsvRows([]);
+    setCsvHeaders([]);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result;
+      if (typeof text !== 'string') return;
+      const parsed = parseCsvLeads(text);
+      if (parsed.error) {
+        setCsvError(parsed.error);
+      } else {
+        setCsvRows(parsed.rows);
+        setCsvHeaders(parsed.headers);
+        if (parsed.rows.length > BULK_MAX_RECIPIENTS) {
+          setCsvError(
+            t(
+              'messageTester.bulkCsvTooLarge',
+              'CSV contains {{count}} contacts. OpenWA limits each batch to {{max}} messages. The list has been trimmed to the first {{max}} contacts.',
+              { count: parsed.rows.length, max: BULK_MAX_RECIPIENTS }
+            )
+          );
+          setCsvRows(parsed.rows.slice(0, BULK_MAX_RECIPIENTS));
+        }
+      }
+    };
+    reader.onerror = () => {
+      setCsvError(t('messageTester.fileReadError', 'Error reading CSV file'));
+    };
+    reader.readAsText(file);
+  };
+
   const isMediaMessageType = mediaMessageTypes.includes(messageType);
   const bulkRecipientList = parseBulkRecipients(bulkRecipients);
   const pollOptionsFilled = pollOptions.map(o => o.trim()).filter(o => o.length > 0);
@@ -257,10 +302,13 @@ export function MessageTester() {
   } else if (messageType === 'forward') {
     formValid = forwardTo.trim().length > 0 && forwardMessageId.trim().length > 0;
   } else if (messageType === 'bulk') {
+    const hasRecipients =
+      bulkMode === 'csv'
+        ? csvRows.length > 0 && csvRows.length <= BULK_MAX_RECIPIENTS
+        : bulkRecipientList.length > 0 && bulkRecipientList.length <= BULK_MAX_RECIPIENTS;
     formValid =
       content.trim().length > 0 &&
-      bulkRecipientList.length > 0 &&
-      bulkRecipientList.length <= BULK_MAX_RECIPIENTS &&
+      hasRecipients &&
       (delayMs === undefined || (!Number.isNaN(delayMs) && delayMs >= 1000 && delayMs <= 60000));
   }
 
@@ -301,12 +349,22 @@ export function MessageTester() {
 
       // Bulk is a batch, not a single send: 202 + batchId, then poll progress until terminal.
       if (messageType === 'bulk') {
+        const payloadMessages =
+          bulkMode === 'csv'
+            ? csvRows.map(row => ({
+                chatId: row.phone,
+                type: 'text' as const,
+                content: { text: content },
+                variables: row.variables,
+              }))
+            : bulkRecipientList.map(recipientChatId => ({
+                chatId: recipientChatId,
+                type: 'text' as const,
+                content: { text: content },
+              }));
+
         const batch = await messageApi.sendBulk(session, {
-          messages: bulkRecipientList.map(recipientChatId => ({
-            chatId: recipientChatId,
-            type: 'text' as const,
-            content: { text: content },
-          })),
+          messages: payloadMessages,
           ...(delayMs !== undefined ? { options: { delayBetweenMessages: delayMs } } : {}),
         });
         batchSessionRef.current = session;
@@ -805,19 +863,142 @@ export function MessageTester() {
           {messageType === 'bulk' && (
             <>
               <div className="form-group">
-                <label htmlFor="mt-11">{t('messageTester.bulkRecipients')}</label>
-                <textarea
-                  id="mt-11"
-                  value={bulkRecipients}
-                  onChange={e => setBulkRecipients(e.target.value)}
-                  placeholder={t('messageTester.bulkRecipientsPlaceholder')}
-                  rows={4}
-                />
-                <span className="hint">
-                  {t('messageTester.bulkRecipientsHint')} ·{' '}
-                  {t('messageTester.bulkRecipientsCount', { count: bulkRecipientList.length })}
+                <span className="group-label" id="bulk-mode-label">
+                  {t('messageTester.bulkModeLabel', 'Bulk Input Mode')}
                 </span>
+                <div className="toggle-group" role="group" aria-labelledby="bulk-mode-label">
+                  <button
+                    type="button"
+                    aria-pressed={bulkMode === 'paste'}
+                    className={bulkMode === 'paste' ? 'active' : ''}
+                    onClick={() => setBulkMode('paste')}
+                  >
+                    {t('messageTester.bulkModePaste', 'Paste Numbers')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={bulkMode === 'csv'}
+                    className={bulkMode === 'csv' ? 'active' : ''}
+                    onClick={() => setBulkMode('csv')}
+                  >
+                    {t('messageTester.bulkModeCsv', 'Upload CSV with Variables')}
+                  </button>
+                </div>
               </div>
+
+              {bulkMode === 'paste' ? (
+                <div className="form-group">
+                  <label htmlFor="mt-11">{t('messageTester.bulkRecipients')}</label>
+                  <textarea
+                    id="mt-11"
+                    value={bulkRecipients}
+                    onChange={e => setBulkRecipients(e.target.value)}
+                    placeholder={t('messageTester.bulkRecipientsPlaceholder')}
+                    rows={4}
+                  />
+                  <span className="hint">
+                    {t('messageTester.bulkRecipientsHint')} ·{' '}
+                    {t('messageTester.bulkRecipientsCount', { count: bulkRecipientList.length })}
+                  </span>
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label htmlFor="mt-csv-file">{t('messageTester.bulkCsvUploadLabel', 'Upload CSV File')}</label>
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <input
+                      id="mt-csv-file"
+                      type="file"
+                      accept=".csv"
+                      onChange={handleCsvChange}
+                      style={{ display: 'none' }}
+                      ref={csvFileInputRef}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => csvFileInputRef.current?.click()}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        fontSize: '0.875rem',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        background: 'var(--bg-white)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                      }}
+                    >
+                      <Upload size={16} />
+                      {csvFileName ? t('messageTester.bulkCsvChange', 'Change CSV File') : t('messageTester.bulkCsvSelect', 'Select CSV File')}
+                    </button>
+                    {csvFileName && (
+                      <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                        {csvFileName} ({csvRows.length} {t('messageTester.contacts', 'contacts')})
+                      </span>
+                    )}
+                  </div>
+                  {csvError && (
+                    <div className="hint" style={{ color: 'var(--error)', marginTop: '0.25rem' }}>
+                      {csvError}
+                    </div>
+                  )}
+                  {csvRows.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: '0.75rem',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        overflow: 'hidden',
+                        fontSize: '0.8125rem',
+                      }}
+                    >
+                      <div
+                        style={{
+                          background: 'var(--bg-light, #f8f9fa)',
+                          padding: '0.375rem 0.75rem',
+                          fontWeight: '600',
+                          borderBottom: '1px solid var(--border)',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        {t('messageTester.csvPreview', 'CSV Variables Preview (First 3 Rows)')}
+                      </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ background: 'var(--bg-white)', borderBottom: '1px solid var(--border)' }}>
+                            <th style={{ padding: '0.375rem 0.75rem', fontWeight: '600' }}>Phone</th>
+                            {csvHeaders
+                              .filter(h => h.toLowerCase() !== 'phone' && h.toLowerCase() !== 'number')
+                              .map(header => (
+                                <th key={header} style={{ padding: '0.375rem 0.75rem', fontWeight: '600' }}>
+                                  {header}
+                                </th>
+                              ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {csvRows.slice(0, 3).map((row, idx) => (
+                            <tr key={idx} style={{ borderBottom: idx < 2 ? '1px solid var(--border)' : 'none' }}>
+                              <td style={{ padding: '0.375rem 0.75rem', fontFamily: 'monospace' }}>
+                                {row.phone.split('@')[0]}
+                              </td>
+                              {csvHeaders
+                                .filter(h => h.toLowerCase() !== 'phone' && h.toLowerCase() !== 'number')
+                                .map(header => (
+                                  <td key={header} style={{ padding: '0.375rem 0.75rem' }}>
+                                    {row.variables[header]}
+                                  </td>
+                                ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="form-group">
                 <label htmlFor="mt-12">{t('messageTester.messageContent')}</label>
                 <textarea
