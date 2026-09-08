@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCsvLeads } from './csvLeads.ts';
+import { parseCsvLeads, extractPlaceholders, mapRowVariables } from './csvLeads.ts';
 
 test('successfully parses simple valid CSV leads', () => {
   const csvText = 'phone,name,url,customization\n15550199001,Alice,https://example.com/alice,VIP\n15550199002,Bob,https://example.com/bob,Gold';
@@ -52,3 +52,26 @@ test('returns error for empty or invalid CSV text', () => {
   const resultNoData = parseCsvLeads('phone,name,url');
   assert.ok(resultNoData.error);
 });
+
+test('extracts unique variable placeholders from template text', () => {
+  const templateText = 'Hello {{name}}, your order {{order_id}} is ready. Contact {{ name }} if any issue.';
+  const placeholders = extractPlaceholders(templateText);
+  assert.deepEqual(placeholders, ['name', 'order_id']);
+});
+
+test('maps custom CSV column names to template variable placeholders', () => {
+  const rawVars = {
+    'phone': '15550199001',
+    'Customer Name': 'Alice',
+    'Bill Total': '$100',
+  };
+  const mappings = {
+    'name': 'Customer Name',
+    'amount': 'Bill Total',
+  };
+  const mapped = mapRowVariables(rawVars, mappings);
+  assert.equal(mapped['name'], 'Alice');
+  assert.equal(mapped['amount'], '$100');
+  assert.equal(mapped['Customer Name'], 'Alice');
+});
+

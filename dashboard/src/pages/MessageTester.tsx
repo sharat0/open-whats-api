@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Send, CheckCircle, XCircle, Loader2, Upload, X, Plus } from 'lucide-react';
 import {
@@ -11,9 +11,9 @@ import {
 } from '../services/api';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRole } from '../hooks/useRole';
-import { useSessionsQuery, useSessionGroupsQuery } from '../hooks/queries';
+import { useSessionsQuery, useSessionGroupsQuery, useTemplatesQuery } from '../hooks/queries';
 import { parseBulkRecipients, BULK_MAX_RECIPIENTS } from '../utils/bulkRecipients';
-import { parseCsvLeads, type CsvRow } from '../utils/csvLeads';
+import { parseCsvLeads, extractPlaceholders, mapRowVariables, type CsvRow } from '../utils/csvLeads';
 import { PageHeader } from '../components/PageHeader';
 import './MessageTester.css';
 
@@ -134,6 +134,8 @@ export function MessageTester() {
   const [bulkRecipients, setBulkRecipients] = useState('');
   const [bulkDelay, setBulkDelay] = useState('');
   const [bulkMode, setBulkMode] = useState<'paste' | 'csv'>('paste');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [variableMappings, setVariableMappings] = useState<Record<string, string>>({});
   const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvFileName, setCsvFileName] = useState('');
@@ -151,6 +153,30 @@ export function MessageTester() {
   const batchSessionRef = useRef('');
 
   const { data: groups = [], isLoading: loadingGroups } = useSessionGroupsQuery(session, recipientType === 'group');
+  const { data: templates = [], isLoading: loadingTemplates } = useTemplatesQuery(
+    session,
+    messageType === 'bulk' && !!session
+  );
+
+  const placeholders = useMemo(() => extractPlaceholders(content), [content]);
+
+  useEffect(() => {
+    if (csvHeaders.length === 0) return;
+    setVariableMappings(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const v of placeholders) {
+        if (!next[v]) {
+          const match = csvHeaders.find(h => h.toLowerCase().trim() === v.toLowerCase().trim());
+          if (match) {
+            next[v] = match;
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [placeholders, csvHeaders]);
 
   useEffect(() => {
     if (sessions.length > 0 && !session) {
@@ -355,7 +381,7 @@ export function MessageTester() {
                 chatId: row.phone,
                 type: 'text' as const,
                 content: { text: content },
-                variables: row.variables,
+                variables: mapRowVariables(row.variables, variableMappings),
               }))
             : bulkRecipientList.map(recipientChatId => ({
                 chatId: recipientChatId,
@@ -863,6 +889,45 @@ export function MessageTester() {
           {messageType === 'bulk' && (
             <>
               <div className="form-group">
+                <label htmlFor="mt-template">
+                  {t('messageTester.selectTemplateLabel', 'Include Pre-built Template (Optional)')}
+                </label>
+                <select
+                  id="mt-template"
+                  value={selectedTemplateId}
+                  onChange={e => {
+                    const tplId = e.target.value;
+                    setSelectedTemplateId(tplId);
+                    if (tplId) {
+                      const found = templates.find(tpl => tpl.id === tplId);
+                      if (found) {
+                        const templateContent = [found.header, found.body, found.footer]
+                          .filter(Boolean)
+                          .join('\n\n');
+                        setContent(templateContent);
+                      }
+                    }
+                  }}
+                  disabled={loadingTemplates || templates.length === 0}
+                >
+                  <option value="">{t('messageTester.selectTemplateDefault', '-- Select a Pre-built Template --')}</option>
+                  {templates.map(tpl => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name}
+                    </option>
+                  ))}
+                </select>
+                {loadingTemplates && (
+                  <span className="hint">{t('messageTester.loadingTemplates', 'Loading templates...')}</span>
+                )}
+                {!loadingTemplates && templates.length === 0 && (
+                  <span className="hint">
+                    {t('messageTester.noTemplatesHint', 'No saved templates found for this session.')}
+                  </span>
+                )}
+              </div>
+
+              <div className="form-group">
                 <span className="group-label" id="bulk-mode-label">
                   {t('messageTester.bulkModeLabel', 'Bulk Input Mode')}
                 </span>
@@ -930,7 +995,9 @@ export function MessageTester() {
                       }}
                     >
                       <Upload size={16} />
-                      {csvFileName ? t('messageTester.bulkCsvChange', 'Change CSV File') : t('messageTester.bulkCsvSelect', 'Select CSV File')}
+                      {csvFileName
+                        ? t('messageTester.bulkCsvChange', 'Change CSV File')
+                        : t('messageTester.bulkCsvSelect', 'Select CSV File')}
                     </button>
                     {csvFileName && (
                       <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -994,6 +1061,66 @@ export function MessageTester() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {bulkMode === 'csv' && placeholders.length > 0 && (
+                <div
+                  className="form-group"
+                  style={{
+                    background: 'var(--bg-light, #f8f9fa)',
+                    padding: '0.75rem 1rem',
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <label style={{ fontWeight: '600', marginBottom: '0.5rem', display: 'block' }}>
+                    {t('messageTester.mapVariablesLabel', 'Map Template Variables to CSV Columns')}
+                  </label>
+                  {csvHeaders.length === 0 ? (
+                    <span className="hint">
+                      {t('messageTester.uploadCsvFirstHint', 'Upload a CSV file above to map variables: {{vars}}', {
+                        vars: placeholders.map(p => `{{${p}}}`).join(', '),
+                      })}
+                    </span>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {placeholders.map(p => (
+                        <div
+                          key={p}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '1rem',
+                          }}
+                        >
+                          <span style={{ fontSize: '0.875rem', fontFamily: 'monospace', fontWeight: '600' }}>
+                            {`{{${p}}}`}
+                          </span>
+                          <select
+                            value={variableMappings[p] || ''}
+                            onChange={e =>
+                              setVariableMappings(prev => ({
+                                ...prev,
+                                [p]: e.target.value,
+                              }))
+                            }
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.875rem', minWidth: '180px' }}
+                          >
+                            <option value="">
+                              {t('messageTester.selectColumnDefault', '-- Select CSV Column --')}
+                            </option>
+                            {csvHeaders.map(header => (
+                              <option key={header} value={header}>
+                                {header}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

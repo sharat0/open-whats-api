@@ -107,3 +107,29 @@ export function parseCsvLeads(text: string): CsvParseResult {
 
   return { rows, headers: rawHeaders };
 }
+
+/**
+ * Extract unique variable placeholders like {{name}} or {{ var_key }} from template text.
+ */
+export function extractPlaceholders(text: string): string[] {
+  return Array.from(new Set(Array.from(text.matchAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g), match => match[1]))).sort();
+}
+
+/**
+ * Apply custom CSV column mappings to a row's raw variables.
+ * For each placeholder key mapped to a csvColumn, if that column exists in row.variables,
+ * place it in the resulting variables map under placeholder key.
+ */
+export function mapRowVariables(
+  rowVariables: Record<string, string>,
+  variableMappings: Record<string, string>,
+): Record<string, string> {
+  const result: Record<string, string> = { ...rowVariables };
+  for (const [placeholder, csvCol] of Object.entries(variableMappings)) {
+    if (csvCol && rowVariables[csvCol] !== undefined) {
+      result[placeholder] = rowVariables[csvCol];
+    }
+  }
+  return result;
+}
+
