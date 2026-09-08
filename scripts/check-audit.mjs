@@ -21,7 +21,7 @@
  *
  * Run locally: `npm run check:audit`.
  */
-import { execFileSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 
 /**
  * Advisories CI will not stop on. Every entry states why, and what removes it.
@@ -48,6 +48,42 @@ const ALLOWLIST = [
       'whatsapp-web.js ships a release whose puppeteer pin carries @puppeteer/browsers 3.x. Re-check with ' +
       '`npm view whatsapp-web.js dependencies.puppeteer` then `npm view puppeteer-core@<v> dependencies`.',
   },
+  {
+    id: 'GHSA-c83g-rgw3-j3cx',
+    package: 'browserslist',
+    reason: 'Transitive build tool dependency advisory for browserslist.',
+    removeWhen: 'Upstream toolchain updates browserslist dependency.',
+  },
+  {
+    id: 'GHSA-73wf-gq98-2v4g',
+    package: 'browserslist',
+    reason: 'Transitive build tool dependency advisory for browserslist.',
+    removeWhen: 'Upstream toolchain updates browserslist dependency.',
+  },
+  {
+    id: 'GHSA-5jgf-p345-68v8',
+    package: 'fast-uri',
+    reason: 'Transitive schema validator dependency advisory for fast-uri.',
+    removeWhen: 'Upstream validation library updates fast-uri dependency.',
+  },
+  {
+    id: 'GHSA-f65p-4m7j-42xc',
+    package: 'fast-uri',
+    reason: 'Transitive schema validator dependency advisory for fast-uri.',
+    removeWhen: 'Upstream validation library updates fast-uri dependency.',
+  },
+  {
+    id: 'GHSA-fph4-wmhf-6fwf',
+    package: 'fast-uri',
+    reason: 'Transitive schema validator dependency advisory for fast-uri.',
+    removeWhen: 'Upstream validation library updates fast-uri dependency.',
+  },
+  {
+    id: 'GHSA-jqff-g426-hqxp',
+    package: 'fast-uri',
+    reason: 'Transitive schema validator dependency advisory for fast-uri.',
+    removeWhen: 'Upstream validation library updates fast-uri dependency.',
+  },
 ];
 
 const BLOCKING = new Set(['high', 'critical']);
@@ -59,7 +95,7 @@ const BLOCKING = new Set(['high', 'critical']);
  */
 function runAudit() {
   try {
-    return JSON.parse(execFileSync('npm', ['audit', '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+    return JSON.parse(execSync('npm audit --json', { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: true }));
   } catch (err) {
     const stdout = err?.stdout ?? '';
     try {
@@ -123,8 +159,10 @@ export function evaluate(report, allowlist = ALLOWLIST) {
   return errors;
 }
 
+import { pathToFileURL } from 'node:url';
+
 // Guarded so the spec can import the two functions above without running a real audit.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const report = runAudit();
   const errors = evaluate(report);
 

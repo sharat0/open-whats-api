@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { parseCsvLeads, extractPlaceholders, mapRowVariables } from './csvLeads.ts';
 
 test('successfully parses simple valid CSV leads', () => {
-  const csvText = 'phone,name,url,customization\n15550199001,Alice,https://example.com/alice,VIP\n15550199002,Bob,https://example.com/bob,Gold';
+  const csvText =
+    'phone,name,url,customization\n15550199001,Alice,https://example.com/alice,VIP\n15550199002,Bob,https://example.com/bob,Gold';
   const result = parseCsvLeads(csvText);
 
   assert.equal(result.error, undefined);
@@ -61,17 +62,16 @@ test('extracts unique variable placeholders from template text', () => {
 
 test('maps custom CSV column names to template variable placeholders', () => {
   const rawVars = {
-    'phone': '15550199001',
+    phone: '15550199001',
     'Customer Name': 'Alice',
     'Bill Total': '$100',
   };
   const mappings = {
-    'name': 'Customer Name',
-    'amount': 'Bill Total',
+    name: 'Customer Name',
+    amount: 'Bill Total',
   };
   const mapped = mapRowVariables(rawVars, mappings);
   assert.equal(mapped['name'], 'Alice');
   assert.equal(mapped['amount'], '$100');
   assert.equal(mapped['Customer Name'], 'Alice');
 });
-

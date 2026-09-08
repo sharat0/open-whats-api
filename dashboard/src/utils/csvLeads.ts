@@ -65,9 +65,7 @@ export function parseCsvLeads(text: string): CsvParseResult {
   const headers = rawHeaders.map(h => h.toLowerCase().trim());
 
   // Find phone number column index
-  let phoneIdx = headers.findIndex(h =>
-    ['phone', 'number', 'to', 'chatid', 'recipient', 'contact'].includes(h)
-  );
+  let phoneIdx = headers.findIndex(h => ['phone', 'number', 'to', 'chatid', 'recipient', 'contact'].includes(h));
   if (phoneIdx === -1) {
     phoneIdx = 0; // fallback to the first column
   }
@@ -132,4 +130,3 @@ export function mapRowVariables(
   }
   return result;
 }
-

@@ -291,8 +291,8 @@ export function MessageTester() {
             t(
               'messageTester.bulkCsvTooLarge',
               'CSV contains {{count}} contacts. OpenWA limits each batch to {{max}} messages. The list has been trimmed to the first {{max}} contacts.',
-              { count: parsed.rows.length, max: BULK_MAX_RECIPIENTS }
-            )
+              { count: parsed.rows.length, max: BULK_MAX_RECIPIENTS },
+            ),
           );
           setCsvRows(parsed.rows.slice(0, BULK_MAX_RECIPIENTS));
         }
@@ -898,16 +898,16 @@ export function MessageTester() {
                     if (tplId) {
                       const found = templates.find(tpl => tpl.id === tplId);
                       if (found) {
-                        const templateContent = [found.header, found.body, found.footer]
-                          .filter(Boolean)
-                          .join('\n\n');
+                        const templateContent = [found.header, found.body, found.footer].filter(Boolean).join('\n\n');
                         setContent(templateContent);
                       }
                     }
                   }}
                   disabled={loadingTemplates || templates.length === 0}
                 >
-                  <option value="">{t('messageTester.selectTemplateDefault', '-- Select a Pre-built Template --')}</option>
+                  <option value="">
+                    {t('messageTester.selectTemplateDefault', '-- Select a Pre-built Template --')}
+                  </option>
                   {templates.map(tpl => (
                     <option key={tpl.id} value={tpl.id}>
                       {tpl.name}
@@ -922,7 +922,7 @@ export function MessageTester() {
                     {t(
                       'messageTester.noTemplatesHint',
                       'No saved templates found for active session ({{sessionName}}). Ensure the correct session is selected in the Session dropdown above.',
-                      { sessionName: sessions.find(s => s.id === session)?.name || session || 'selected session' }
+                      { sessionName: sessions.find(s => s.id === session)?.name || session || 'selected session' },
                     )}
                   </span>
                 )}
